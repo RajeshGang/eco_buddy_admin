@@ -1,26 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
-import '../../services/analytics_service.dart';
-import '../../models/sustainability_metrics.dart';
+import '../../services/receipt_analytics_service.dart';
 
-class SustainabilitySection extends StatelessWidget {
-  const SustainabilitySection({super.key});
+class ReceiptAnalyticsSection extends StatelessWidget {
+  const ReceiptAnalyticsSection({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final analyticsService = Provider.of<AnalyticsService>(context, listen: false);
+    final receiptService = Provider.of<ReceiptAnalyticsService>(context, listen: false);
     
-    return StreamBuilder<SustainabilityMetrics>(
-      stream: analyticsService.sustainabilityMetricsStream(),
+    return StreamBuilder<Map<String, dynamic>>(
+      stream: receiptService.receiptAnalyticsStream(),
       builder: (context, snapshot) {
-        final metrics = snapshot.data ?? SustainabilityMetrics(
-          averageScore: 0.0,
-          totalAssessments: 0,
-          scoreDistribution: {},
-          scoreTrends: [],
-          environmentalImpact: {},
-        );
+        final analytics = snapshot.data ?? {
+          'totalReceipts': 0,
+          'totalItems': 0,
+          'averageItemsPerReceipt': 0.0,
+          'averageScore': 0.0,
+          'categoryBreakdown': <String, int>{},
+          'receiptTrends': <Map<String, dynamic>>[],
+          'totalValue': 0.0,
+        };
 
         return SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
@@ -28,10 +29,11 @@ class SustainabilitySection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Sustainability Analytics',
+                'Receipt Analytics',
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 24),
+              // Key Metrics Cards
               GridView.count(
                 crossAxisCount: _calculateCrossAxisCount(context),
                 shrinkWrap: true,
@@ -41,44 +43,41 @@ class SustainabilitySection extends StatelessWidget {
                 children: [
                   _buildStatCard(
                     context,
-                    title: 'Average Score',
-                    value: '${metrics.averageScore.toStringAsFixed(1)}',
-                    icon: Icons.eco,
-                    color: Colors.teal,
-                    subtitle: 'Overall average',
-                  ),
-                  _buildStatCard(
-                    context,
-                    title: 'Best Score',
-                    value: metrics.scoreTrends.isNotEmpty
-                        ? '${metrics.scoreTrends.map((t) => (t['score'] as num).toDouble()).reduce((a, b) => a > b ? a : b).toStringAsFixed(1)}'
-                        : '0.0',
-                    icon: Icons.star,
-                    color: Colors.amber,
-                    subtitle: 'Highest recorded',
-                  ),
-                  _buildStatCard(
-                    context,
                     title: 'Total Receipts',
-                    value: '${metrics.totalAssessments}',
+                    value: '${analytics['totalReceipts']}',
                     icon: Icons.receipt_long,
-                    color: Colors.orange,
+                    color: Colors.blue,
                     subtitle: 'Analyzed receipts',
                   ),
                   _buildStatCard(
                     context,
-                    title: 'Min Score',
-                    value: metrics.scoreTrends.isNotEmpty
-                        ? '${metrics.scoreTrends.map((t) => (t['score'] as num).toDouble()).reduce((a, b) => a < b ? a : b).toStringAsFixed(1)}'
-                        : '0.0',
-                    icon: Icons.trending_down,
-                    color: Colors.red,
-                    subtitle: 'Lowest recorded',
+                    title: 'Total Items',
+                    value: '${analytics['totalItems']}',
+                    icon: Icons.shopping_cart,
+                    color: Colors.orange,
+                    subtitle: 'Items scanned',
+                  ),
+                  _buildStatCard(
+                    context,
+                    title: 'Avg Items/Receipt',
+                    value: '${(analytics['averageItemsPerReceipt'] as num).toStringAsFixed(1)}',
+                    icon: Icons.list,
+                    color: Colors.purple,
+                    subtitle: 'Per receipt',
+                  ),
+                  _buildStatCard(
+                    context,
+                    title: 'Avg Score',
+                    value: '${(analytics['averageScore'] as num).toStringAsFixed(1)}',
+                    icon: Icons.star,
+                    color: Colors.green,
+                    subtitle: 'Sustainability',
                   ),
                 ],
               ),
               const SizedBox(height: 24),
-              if (metrics.scoreTrends.isNotEmpty)
+              // Receipt Trends Chart
+              if ((analytics['receiptTrends'] as List).isNotEmpty)
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -86,17 +85,18 @@ class SustainabilitySection extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Score History Trend',
+                          'Receipt Trends',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 16),
-                        _buildScoreTrendChart(metrics.scoreTrends),
+                        _buildReceiptTrendChart(analytics['receiptTrends'] as List<Map<String, dynamic>>),
                       ],
                     ),
                   ),
                 ),
               const SizedBox(height: 24),
-              if (metrics.scoreDistribution.isNotEmpty)
+              // Category Breakdown
+              if ((analytics['categoryBreakdown'] as Map).isNotEmpty)
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -104,59 +104,38 @@ class SustainabilitySection extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Score Distribution',
+                          'Category Breakdown',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 16),
-                        ...metrics.scoreDistribution.entries.map((entry) {
+                        ...(analytics['categoryBreakdown'] as Map<String, int>).entries.map((entry) {
+                          final total = (analytics['totalItems'] as int);
+                          final percentage = total > 0 ? (entry.value / total * 100) : 0.0;
                           return Padding(
-                            padding: const EdgeInsets.only(bottom: 8.0),
-                            child: Row(
+                            padding: const EdgeInsets.only(bottom: 12.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: Text('${entry.key}%'),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      entry.key,
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      '${entry.value} (${percentage.toStringAsFixed(1)}%)',
+                                      style: TextStyle(color: Colors.grey[600]),
+                                    ),
+                                  ],
                                 ),
-                                Expanded(
-                                  flex: 3,
-                                  child: LinearProgressIndicator(
-                                    value: entry.value / metrics.totalAssessments,
-                                    backgroundColor: Colors.grey[200],
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.teal),
-                                  ),
+                                const SizedBox(height: 4),
+                                LinearProgressIndicator(
+                                  value: total > 0 ? entry.value / total : 0.0,
+                                  backgroundColor: Colors.grey[200],
+                                  valueColor: AlwaysStoppedAnimation<Color>(_getCategoryColor(entry.key)),
                                 ),
-                                const SizedBox(width: 8),
-                                Text('${entry.value}'),
                               ],
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 24),
-              if (metrics.environmentalImpact.isNotEmpty)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Environmental Impact',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 16),
-                        ...metrics.environmentalImpact.entries.map((entry) {
-                          return ListTile(
-                            leading: Icon(Icons.eco, color: Colors.green),
-                            title: Text(entry.key),
-                            trailing: Text(
-                              entry.value.toString(),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
                             ),
                           );
                         }),
@@ -228,16 +207,16 @@ class SustainabilitySection extends StatelessWidget {
     );
   }
 
-  Widget _buildScoreTrendChart(List<Map<String, dynamic>> scoreTrends) {
-    if (scoreTrends.isEmpty) {
+  Widget _buildReceiptTrendChart(List<Map<String, dynamic>> trends) {
+    if (trends.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(32.0),
-          child: Text('No score trend data available'),
+          child: Text('No receipt trend data available'),
         ),
       );
     }
-    
+
     return SizedBox(
       height: 300,
       child: LineChart(
@@ -248,9 +227,8 @@ class SustainabilitySection extends StatelessWidget {
               sideTitles: SideTitles(
                 showTitles: true,
                 getTitlesWidget: (value, meta) {
-                  if (value >= 0 && value < scoreTrends.length) {
-                    final date = scoreTrends[value.toInt()]['date'] as String? ?? '';
-                    // Show only month and day
+                  if (value >= 0 && value < trends.length) {
+                    final date = trends[value.toInt()]['date'] as String? ?? '';
                     if (date.length >= 10) {
                       return Text(date.substring(5, 10));
                     }
@@ -272,28 +250,36 @@ class SustainabilitySection extends StatelessWidget {
           borderData: FlBorderData(show: true),
           lineBarsData: [
             LineChartBarData(
-              spots: scoreTrends.asMap().entries.map((entry) {
-                final score = entry.value['score'];
+              spots: trends.asMap().entries.map((entry) {
                 return FlSpot(
                   entry.key.toDouble(),
-                  (score is num ? score.toDouble() : 0.0),
+                  (entry.value['receipts'] ?? 0).toDouble(),
                 );
               }).toList(),
               isCurved: true,
-              color: Colors.teal,
+              color: Colors.blue,
               barWidth: 3,
               dotData: FlDotData(show: true),
               belowBarData: BarAreaData(
                 show: true,
-                color: Colors.teal.withValues(alpha: 0.1),
+                color: Colors.blue.withValues(alpha: 0.1),
               ),
             ),
           ],
           minY: 0,
-          maxY: 100,
         ),
       ),
     );
+  }
+
+  Color _getCategoryColor(String category) {
+    final colors = {
+      'Food & Grocery': Colors.green,
+      'Personal Care': Colors.pink,
+      'General': Colors.grey,
+      'Unknown': Colors.grey,
+    };
+    return colors[category] ?? Colors.blue;
   }
 }
 

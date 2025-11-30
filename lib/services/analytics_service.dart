@@ -198,7 +198,7 @@ class AnalyticsService {
     }
   }
 
-  // Sustainability Metrics - calculates from actual assessments collection
+  // Sustainability Metrics - calculates from receipts and assessments collections
   Future<SustainabilityMetrics> getSustainabilityMetrics() async {
     try {
       // Try to get from analytics collection first (if pre-aggregated)
@@ -207,12 +207,176 @@ class AnalyticsService {
         return SustainabilityMetrics.fromFirestore(analyticsDoc);
       }
       
-      // Otherwise, calculate from sustainability_assessments collection
-      final assessmentsSnapshot = await _firestore
-          .collection('sustainability_assessments')
-          .get();
+      // Try to get scores from receipts subcollections under users
+      // Receipts are stored as: users/{userId}/receipts/{receiptId}
+      final allReceipts = <QueryDocumentSnapshot>[];
+      final userIds = <String>[];
       
-      final totalAssessments = assessmentsSnapshot.docs.length;
+      try {
+        // First, try to get user IDs from users collection
+        final usersSnapshot = await _firestore.collection('users').get();
+        userIds.addAll(usersSnapshot.docs.map((doc) => doc.id));
+      } catch (e) {
+        if (kDebugMode) {
+          print('Users collection not accessible: $e');
+        }
+      }
+      
+      // If users collection is empty, get user IDs from leaderboard collection
+      if (userIds.isEmpty) {
+        try {
+          final leaderboardSnapshot = await _firestore.collection('leaderboard').get();
+          userIds.addAll(leaderboardSnapshot.docs.map((doc) => doc.id));
+        } catch (e) {
+          if (kDebugMode) {
+            print('Leaderboard collection not accessible: $e');
+          }
+        }
+      }
+      
+      // Now query receipts from each user's subcollection
+      for (var userId in userIds) {
+        try {
+          final receiptsSnapshot = await _firestore
+              .collection('users')
+              .doc(userId)
+              .collection('receipts')
+              .get();
+          allReceipts.addAll(receiptsSnapshot.docs);
+          if (kDebugMode && receiptsSnapshot.docs.isNotEmpty) {
+            print('Found ${receiptsSnapshot.docs.length} receipts for user $userId');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('Error fetching receipts for user $userId: $e');
+          }
+        }
+      }
+      
+      // Also try top-level receipts collection as fallback
+      if (allReceipts.isEmpty) {
+        try {
+          final receiptsSnapshot = await _firestore.collection('receipts').get();
+          allReceipts.addAll(receiptsSnapshot.docs);
+        } catch (e) {
+          if (kDebugMode) {
+            print('Top-level receipts collection not accessible: $e');
+          }
+        }
+      }
+      
+      if (kDebugMode) {
+        print('Total receipts found: ${allReceipts.length}');
+      }
+      
+      // Also try sustainability_assessments collection
+      QuerySnapshot? assessmentsSnapshot;
+      try {
+        assessmentsSnapshot = await _firestore
+            .collection('sustainability_assessments')
+            .get();
+      } catch (e) {
+        if (kDebugMode) {
+          print('Sustainability assessments collection not accessible: $e');
+        }
+      }
+      
+      // Combine data from both collections
+      final allScores = <double>[];
+      final scoreDistribution = <String, double>{};
+      final scoreTrends = <Map<String, dynamic>>[];
+      final trendMap = <String, List<double>>{};
+      final environmentalImpact = <String, double>{};
+      
+      // Process receipts from subcollections
+      if (allReceipts.isNotEmpty) {
+        for (var doc in allReceipts) {
+          final receiptData = doc.data() as Map<String, dynamic>;
+          
+          // Get overall score from receipt
+          final overallScore = (receiptData['overallScore'] ?? 
+                               receiptData['score'] ?? 
+                               receiptData['sustainabilityScore'] ?? 
+                               0.0).toDouble();
+          
+          if (overallScore > 0) {
+            allScores.add(overallScore);
+            
+            // Score distribution (rounded to nearest 10)
+            final scoreBucket = ((overallScore / 10).floor() * 10).toString();
+            scoreDistribution[scoreBucket] = ((scoreDistribution[scoreBucket] ?? 0.0) + 1.0);
+            
+            // Track trends
+            final timestamp = receiptData['timestamp'] as Timestamp? ?? 
+                             receiptData['createdAt'] as Timestamp? ??
+                             receiptData['date'] as Timestamp?;
+            if (timestamp != null) {
+              final dateKey = timestamp.toDate().toIso8601String().substring(0, 10);
+              if (!trendMap.containsKey(dateKey)) {
+                trendMap[dateKey] = [];
+              }
+              trendMap[dateKey]!.add(overallScore);
+            }
+          }
+          
+          // Process individual items if they exist
+          final items = receiptData['items'] as List<dynamic>?;
+          if (items != null) {
+            for (var item in items) {
+              if (item is Map<String, dynamic>) {
+                final itemScore = (item['score'] ?? 
+                                  item['sustainabilityScore'] ?? 
+                                  0.0).toDouble();
+                if (itemScore > 0) {
+                  allScores.add(itemScore);
+                  final scoreBucket = ((itemScore / 10).floor() * 10).toString();
+                  scoreDistribution[scoreBucket] = ((scoreDistribution[scoreBucket] ?? 0.0) + 1.0);
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Process sustainability_assessments collection
+      if (assessmentsSnapshot != null) {
+        for (var doc in assessmentsSnapshot.docs) {
+          final assessmentData = doc.data() as Map<String, dynamic>;
+          final score = (assessmentData['score'] ?? 
+                        assessmentData['sustainabilityScore'] ?? 
+                        0.0).toDouble();
+          
+          if (score > 0) {
+            allScores.add(score);
+            
+            // Score distribution
+            final scoreBucket = ((score / 10).floor() * 10).toString();
+            scoreDistribution[scoreBucket] = ((scoreDistribution[scoreBucket] ?? 0.0) + 1.0);
+            
+            // Track trends
+            final timestamp = assessmentData['timestamp'] as Timestamp? ?? 
+                             assessmentData['createdAt'] as Timestamp?;
+            if (timestamp != null) {
+              final dateKey = timestamp.toDate().toIso8601String().substring(0, 10);
+              if (!trendMap.containsKey(dateKey)) {
+                trendMap[dateKey] = [];
+              }
+              trendMap[dateKey]!.add(score);
+            }
+            
+            // Environmental impact metrics
+            final impact = assessmentData['environmentalImpact'] as Map<String, dynamic>?;
+            if (impact != null) {
+              impact.forEach((key, value) {
+                final numValue = (value is num) ? value.toDouble() : 0.0;
+                environmentalImpact[key] = (environmentalImpact[key] ?? 0.0) + numValue;
+              });
+            }
+          }
+        }
+      }
+      
+      final totalAssessments = allScores.length;
       if (totalAssessments == 0) {
         return SustainabilityMetrics(
           averageScore: 0.0,
@@ -223,52 +387,14 @@ class AnalyticsService {
         );
       }
       
-      double totalScore = 0.0;
-      final scoreDistribution = <String, double>{};
-      final scoreTrends = <Map<String, dynamic>>[];
-      final trendMap = <String, List<double>>{};
-      final environmentalImpact = <String, double>{};
-      
-      for (var doc in assessmentsSnapshot.docs) {
-        final assessmentData = doc.data();
-        final score = (assessmentData['score'] ?? 
-                      assessmentData['sustainabilityScore'] ?? 
-                      0.0).toDouble();
-        
-        totalScore += score;
-        
-        // Score distribution (rounded to nearest 10)
-        final scoreBucket = ((score / 10).floor() * 10).toString();
-        scoreDistribution[scoreBucket] = ((scoreDistribution[scoreBucket] ?? 0.0) + 1.0);
-        
-        // Track trends
-        final timestamp = assessmentData['timestamp'] as Timestamp? ?? 
-                         assessmentData['createdAt'] as Timestamp?;
-        if (timestamp != null) {
-          final dateKey = timestamp.toDate().toIso8601String().substring(0, 10);
-          if (!trendMap.containsKey(dateKey)) {
-            trendMap[dateKey] = [];
-          }
-          trendMap[dateKey]!.add(score);
-        }
-        
-        // Environmental impact metrics
-        final impact = assessmentData['environmentalImpact'] as Map<String, dynamic>?;
-        if (impact != null) {
-          impact.forEach((key, value) {
-            final numValue = (value is num) ? value.toDouble() : 0.0;
-            environmentalImpact[key] = (environmentalImpact[key] ?? 0.0) + numValue;
-          });
-        }
-      }
-      
       // Convert trend map to average scores per day
       trendMap.forEach((date, scores) {
         final avgScore = scores.reduce((a, b) => a + b) / scores.length;
-        scoreTrends.add({'date': date, 'score': avgScore});
+        scoreTrends.add({'date': date, 'score': avgScore as double});
       });
       scoreTrends.sort((a, b) => a['date'].compareTo(b['date']));
       
+      final totalScore = allScores.reduce((a, b) => a + b);
       final averageScore = totalScore / totalAssessments;
       
       return SustainabilityMetrics(
@@ -311,10 +437,108 @@ class AnalyticsService {
   }
 
   Stream<SustainabilityMetrics> sustainabilityMetricsStream() {
-    // Listen to sustainability_assessments collection changes and recalculate metrics
+    // Listen to users collection changes to detect new receipts in subcollections
+    // When users change, we'll recalculate metrics from all receipt subcollections
     return _firestore
-        .collection('sustainability_assessments')
+        .collection('users')
         .snapshots()
         .asyncMap((snapshot) => getSustainabilityMetrics());
+  }
+  
+  // Get score statistics (average, best, total)
+  Future<Map<String, dynamic>> getScoreStatistics() async {
+    try {
+      // Get receipts from users subcollections
+      final allReceipts = <QueryDocumentSnapshot>[];
+      final userIds = <String>[];
+      
+      // Get user IDs from users collection or leaderboard
+      try {
+        final usersSnapshot = await _firestore.collection('users').get();
+        userIds.addAll(usersSnapshot.docs.map((doc) => doc.id));
+      } catch (e) {
+        if (kDebugMode) {
+          print('Users collection not accessible: $e');
+        }
+      }
+      
+      if (userIds.isEmpty) {
+        try {
+          final leaderboardSnapshot = await _firestore.collection('leaderboard').get();
+          userIds.addAll(leaderboardSnapshot.docs.map((doc) => doc.id));
+        } catch (e) {
+          if (kDebugMode) {
+            print('Leaderboard collection not accessible: $e');
+          }
+        }
+      }
+      
+      for (var userId in userIds) {
+        try {
+          final receiptsSnapshot = await _firestore
+              .collection('users')
+              .doc(userId)
+              .collection('receipts')
+              .get();
+          allReceipts.addAll(receiptsSnapshot.docs);
+        } catch (e) {
+          if (kDebugMode) {
+            print('Error fetching receipts for user $userId: $e');
+          }
+        }
+      }
+      
+      // Fallback to top-level receipts collection
+      if (allReceipts.isEmpty) {
+        try {
+          final receiptsSnapshot = await _firestore.collection('receipts').get();
+          allReceipts.addAll(receiptsSnapshot.docs);
+        } catch (e) {
+          if (kDebugMode) {
+            print('Top-level receipts collection not accessible: $e');
+          }
+        }
+      }
+      
+      final scores = <double>[];
+      
+      for (var doc in allReceipts) {
+        final receiptData = doc.data() as Map<String, dynamic>;
+        final overallScore = (receiptData['overallScore'] ?? 
+                            receiptData['score'] ?? 
+                            receiptData['sustainabilityScore'] ?? 
+                            0.0).toDouble();
+        if (overallScore > 0) {
+          scores.add(overallScore);
+        }
+      }
+      
+      if (scores.isEmpty) {
+        return {
+          'average': 0.0,
+          'best': 0.0,
+          'total': 0,
+          'min': 0.0,
+        };
+      }
+      
+      scores.sort();
+      return {
+        'average': scores.reduce((a, b) => a + b) / scores.length,
+        'best': scores.last,
+        'total': scores.length,
+        'min': scores.first,
+      };
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting score statistics: $e');
+      }
+      return {
+        'average': 0.0,
+        'best': 0.0,
+        'total': 0,
+        'min': 0.0,
+      };
+    }
   }
 }

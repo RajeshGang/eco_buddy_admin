@@ -6,6 +6,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/dashboard/dashboard_screen.dart';
 import 'services/auth_service.dart';
 import 'services/analytics_service.dart';
+import 'services/receipt_analytics_service.dart';
 import 'utils/theme.dart';
 
 void main() async {
@@ -28,6 +29,9 @@ class MyApp extends StatelessWidget {
         ),
         Provider<AnalyticsService>(
           create: (_) => AnalyticsService(),
+        ),
+        Provider<ReceiptAnalyticsService>(
+          create: (_) => ReceiptAnalyticsService(),
         ),
       ],
       child: MaterialApp(

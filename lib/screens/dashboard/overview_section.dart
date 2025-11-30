@@ -90,10 +90,28 @@ class OverviewSection extends StatelessWidget {
                           _buildStatCard(
                             context,
                             title: 'Avg. Sustainability',
-                            value: '${sustainabilityMetrics.averageScore.toStringAsFixed(1)}%',
+                            value: '${sustainabilityMetrics.averageScore.toStringAsFixed(1)}',
                             icon: Icons.eco,
                             color: Colors.teal,
                             subtitle: '${sustainabilityMetrics.totalAssessments} assessments',
+                          ),
+                          _buildStatCard(
+                            context,
+                            title: 'Best Score',
+                            value: sustainabilityMetrics.scoreTrends.isNotEmpty
+                                ? '${sustainabilityMetrics.scoreTrends.map((t) => (t['score'] as num).toDouble()).reduce((a, b) => a > b ? a : b).toStringAsFixed(1)}'
+                                : '0.0',
+                            icon: Icons.star,
+                            color: Colors.amber,
+                            subtitle: 'Highest recorded',
+                          ),
+                          _buildStatCard(
+                            context,
+                            title: 'Total Receipts',
+                            value: '${sustainabilityMetrics.totalAssessments}',
+                            icon: Icons.receipt_long,
+                            color: Colors.orange,
+                            subtitle: 'Analyzed receipts',
                           ),
                         ],
                       ),
@@ -115,6 +133,24 @@ class OverviewSection extends StatelessWidget {
                             ),
                           ),
                         ),
+                      const SizedBox(height: 24),
+                      if (sustainabilityMetrics.scoreTrends.isNotEmpty)
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Score History Trend',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                                const SizedBox(height: 16),
+                                _buildScoreTrendChart(sustainabilityMetrics.scoreTrends),
+                              ],
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 );
@@ -123,6 +159,73 @@ class OverviewSection extends StatelessWidget {
           },
         );
       },
+    );
+  }
+  
+  Widget _buildScoreTrendChart(List<Map<String, dynamic>> scoreTrends) {
+    if (scoreTrends.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32.0),
+          child: Text('No score trend data available'),
+        ),
+      );
+    }
+    
+    return SizedBox(
+      height: 300,
+      child: LineChart(
+        LineChartData(
+          gridData: FlGridData(show: true),
+          titlesData: FlTitlesData(
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                getTitlesWidget: (value, meta) {
+                  if (value >= 0 && value < scoreTrends.length) {
+                    final date = scoreTrends[value.toInt()]['date'] as String? ?? '';
+                    if (date.length >= 10) {
+                      return Text(date.substring(5, 10));
+                    }
+                    return Text(date);
+                  }
+                  return const Text('');
+                },
+              ),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                getTitlesWidget: (value, meta) {
+                  return Text(value.toInt().toString());
+                },
+              ),
+            ),
+          ),
+          borderData: FlBorderData(show: true),
+          lineBarsData: [
+            LineChartBarData(
+              spots: scoreTrends.asMap().entries.map((entry) {
+                final score = entry.value['score'];
+                return FlSpot(
+                  entry.key.toDouble(),
+                  (score is num ? score.toDouble() : 0.0),
+                );
+              }).toList(),
+              isCurved: true,
+              color: Colors.teal,
+              barWidth: 3,
+              dotData: FlDotData(show: true),
+              belowBarData: BarAreaData(
+                show: true,
+                color: Colors.teal.withValues(alpha: 0.1),
+              ),
+            ),
+          ],
+          minY: 0,
+          maxY: 100,
+        ),
+      ),
     );
   }
 

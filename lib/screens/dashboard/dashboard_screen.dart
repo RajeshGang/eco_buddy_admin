@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/analytics_service.dart';
+import '../../services/receipt_analytics_service.dart';
 import 'overview_section.dart';
 import 'users_section.dart';
 import 'ab_testing_section.dart';
 import 'sustainability_section.dart';
+import 'receipt_analytics_section.dart';
+import 'leaderboard_section.dart';
+import 'recent_activity_section.dart';
 import 'system_section.dart';
 import 'firestore_diagnostics.dart';
 import '../../widgets/admin_status_widget.dart';
@@ -81,6 +85,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 label: Text('Sustainability'),
               ),
               NavigationRailDestination(
+                icon: Icon(Icons.receipt_long),
+                label: Text('Receipts'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.leaderboard),
+                label: Text('Leaderboard'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.history),
+                label: Text('Activity'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.science),
                 label: Text('A/B Testing'),
               ),
@@ -133,10 +149,16 @@ class _SelectedPage extends StatelessWidget {
       case 2:
         return const SustainabilitySection();
       case 3:
-        return const ABTestingSection();
+        return const ReceiptAnalyticsSection();
       case 4:
-        return const SystemSection();
+        return const LeaderboardSection();
       case 5:
+        return const RecentActivitySection();
+      case 6:
+        return const ABTestingSection();
+      case 7:
+        return const SystemSection();
+      case 8:
         return const FirestoreDiagnostics();
       default:
         return OverviewSection(analyticsService: analyticsService);
