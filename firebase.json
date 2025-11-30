@@ -1,0 +1,17 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "ecobuddy-153ba",
+          "configurations": {
+            "web": "1:1009548471879:web:21acf400fcb34d86d98b62"
+          }
+        }
+      }
+    }
+  }
+}

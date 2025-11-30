@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+             exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Admins collection - only admins can read/write (no public sign-up)
+    match /admins/{adminId} {
+      // Only existing admins can read/write admin documents
+      allow read, write: if isAdmin();
+    }
+    
+    // Users collection - admins can read all, users can read/write their own
+    match /users/{userId} {
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow write: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null;
+      // Allow admins to query users collection
+      allow list: if isAdmin();
+    }
+    
+    // Analytics collection - admins can read/write
+    match /analytics/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    
+    // Feature flags - admins can read/write, authenticated users can read
+    match /feature_flags/{flagId} {
+      allow read: if isAdmin() || request.auth != null;
+      allow write: if isAdmin();
+    }
+    
+    // Products collection - admins can read/write, all authenticated users can read
+    match /products/{productId} {
+      allow read: if isAdmin() || request.auth != null;
+      allow write: if isAdmin();
+    }
+    
+    // Scans collection - admins can read all, users can read/write their own
+    match /scans/{scanId} {
+      allow read: if isAdmin() || 
+                     (request.auth != null && 
+                      resource.data.userId == request.auth.uid);
+      allow write: if request.auth != null && 
+                     request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null;
+      allow list: if isAdmin() || request.auth != null;
+    }
+    
+    // Sustainability assessments - admins can read all, users can read/write their own
+    match /sustainability_assessments/{assessmentId} {
+      allow read: if isAdmin() || 
+                     (request.auth != null && 
+                      resource.data.userId == request.auth.uid);
+      allow write: if request.auth != null && 
+                     request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null;
+      allow list: if isAdmin() || request.auth != null;
+    }
+    
+    // User profiles - admins can read all, users can read/write their own
+    match /user_profiles/{userId} {
+      allow read: if isAdmin() || request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Leaderboard collection - admins can read all, users can read/write their own
+    match /leaderboard/{userId} {
+      allow read: if isAdmin() || request.auth != null;
+      allow write: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow create: if request.auth != null;
+    }
+    
+    // Receipts collection - users can read/write their own, admins can read all
+    match /receipts/{receiptId} {
+      allow read: if isAdmin() || 
+                     (request.auth != null && 
+                      resource.data.userId == request.auth.uid);
+      allow write: if request.auth != null && 
+                     request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null;
+      allow list: if isAdmin() || request.auth != null;
+    }
+    
+    // Progress collection - users can read/write their own, admins can read all
+    match /progress/{progressId} {
+      allow read: if isAdmin() || 
+                     (request.auth != null && 
+                      resource.data.userId == request.auth.uid);
+      allow write: if request.auth != null && 
+                     request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null;
+      allow list: if isAdmin() || request.auth != null;
+    }
+    
+    // User progress (if stored by userId as document ID)
+    match /user_progress/{userId} {
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Receipt history (if stored by userId as document ID)
+    match /receipt_history/{userId} {
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Default deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
